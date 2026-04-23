@@ -22,8 +22,8 @@ else:
 
 # 2. 初期設定
 mp_pose = mp.solutions.pose
-pose = mp_pose.Pose(model_complexity=2, min_detection_confidence=0.8, min_tracking_confidence=0.8)
 mp_drawing = mp.solutions.drawing_utils
+pose = mp_pose.Pose(model_complexity=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
 
 def calculate_angle(a, b, c):
     a, b, c = np.array(a), np.array(b), np.array(c)
