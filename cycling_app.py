@@ -13,8 +13,8 @@ except ImportError:
     import mediapipe.solutions.pose as mp_pose
     import mediapipe.solutions.drawing_utils as mp_drawing
 
-st.set_page_config(page_title="ペダリング解析PRO", layout="centered")
-st.title("🚴‍♂️ ペダリング・アナライザー PRO")
+st.set_page_config(page_title="プロ仕様ペダリング解析", layout="centered")
+st.title("🚴‍♂️ ペダリング解析 & コーチング PRO")
 
 mode = st.sidebar.radio("解析モード:", ("AIモード", "マーカーモード"))
 side = st.sidebar.radio("解析脚:", ("左脚", "右脚")) if mode == "AIモード" else "マーカー"
@@ -29,31 +29,28 @@ def calculate_angle(a, b, c):
     if n_ba == 0 or n_bc == 0: return 0
     return np.degrees(np.arccos(np.clip(np.dot(ba, bc) / (n_ba * n_bc), -1.0, 1.0)))
 
-def create_report_image(max_k, a_range, advice_list):
+def create_report_image(max_k, a_range, fitting_adv, pedaling_adv):
     """診断レポート画像を生成する"""
-    img = Image.new('RGB', (800, 600), color=(255, 255, 255))
+    img = Image.new('RGB', (800, 800), color=(255, 255, 255))
     d = ImageDraw.Draw(img)
-    try:
-        # フォント設定（標準的なものを使用）
-        f_title = ImageFont.load_default()
-    except:
-        f_title = ImageFont.load_default()
-
-    d.text((50, 30), "PEDALING ANALYSIS REPORT", fill=(0, 0, 0))
-    d.text((50, 100), f"Max Knee Angle: {max_k} deg", fill=(0, 0, 0))
-    d.text((50, 150), f"Ankle Range: {a_range} deg", fill=(0, 0, 0))
+    d.text((50, 30), "PEDALING & FITTING REPORT", fill=(0, 0, 0))
+    d.text((50, 80), f"Max Knee Angle: {max_k} deg", fill=(0, 0, 0))
+    d.text((50, 110), f"Ankle Range: {a_range} deg", fill=(0, 0, 0))
     
-    y = 250
-    d.text((50, y-30), "[Advice]", fill=(0, 0, 0))
-    for line in advice_list:
+    d.text((50, 180), "[Fitting Advice]", fill=(255, 0, 0))
+    d.text((50, 210), fitting_adv, fill=(0, 0, 0))
+    
+    d.text((50, 300), "[Pedaling Advice]", fill=(0, 0, 255))
+    y = 330
+    for line in pedaling_adv:
         d.text((50, y), f"- {line}", fill=(0, 0, 0))
-        y += 40
+        y += 30
     
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-uploaded_file = st.file_uploader("動画を選択", type=["mp4", "mov", "avi"])
+uploaded_file = st.file_uploader("動画を選択 (120/240fps推奨)", type=["mp4", "mov", "avi"])
 
 if uploaded_file is not None:
     tfile = tempfile.NamedTemporaryFile(delete=False)
@@ -81,36 +78,44 @@ if uploaded_file is not None:
             a_angle = calculate_angle(p[1], p[2], p[3])
             knee_angles.append(k_angle)
             ankle_angles.append(a_angle)
-            
             mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-            cv2.putText(image, f"Knee: {int(k_angle)}deg", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         st_frame.image(image, channels="RGB", use_container_width=True)
-    
     cap.release()
 
     if knee_angles:
         st.divider()
         max_k = int(max(knee_angles))
-        a_range = int(max(ankle_angles) - min(ankle_angles)) if ankle_angles else 0
+        a_max, a_min = max(ankle_angles), min(ankle_angles)
+        a_range = int(a_max - a_min)
         
-        # アドバイス生成
-        advices = []
-        if max_k < 145: advices.append(f"Saddle is LOW ({max_k} deg). Raise 10-20mm.")
-        elif 145 <= max_k <= 155: advices.append("Saddle height is PERFECT.")
-        else: advices.append(f"Saddle is HIGH ({max_k} deg). Lower 5-10mm.")
-        
-        if a_range > 20: advices.append(f"Ankling is LARGE ({a_range} deg). Fix your ankle.")
-        else: advices.append("Ankle stability is GOOD.")
+        # 1. フィッティング・アドバイス
+        if max_k < 145: fitting_adv = "Saddle too LOW. Raise 10-20mm."
+        elif 145 <= max_k <= 155: fitting_adv = "Saddle height is PERFECT."
+        else: fitting_adv = "Saddle too HIGH. Lower 5-10mm."
 
-        # レポート画像作成ボタン
-        report_bytes = create_report_image(max_k, a_range, advices)
-        st.download_button(
-            label="📋 診断レポート画像を保存",
-            data=report_bytes,
-            file_name="pedaling_report.png",
-            mime="image/png"
-        )
+        # 2. ペダリング・アドバイス
+        pedaling_adv = []
+        if a_range > 20:
+            pedaling_adv.append("Excessive Ankling: Stabilize your ankle joint.")
+            pedaling_adv.append("Try to push with your whole leg, not just the foot.")
+        else:
+            pedaling_adv.append("Stable Ankle: Good power transfer.")
+        
+        if a_min < 40:
+            pedaling_adv.append("Heel Drop: Avoid dropping the heel too much at 3 o'clock.")
+        
+        pedaling_adv.append("Focus on pulling up from 7 to 10 o'clock.")
+
+        # レポート表示
+        st.subheader("💡 競技者向け総合アドバイス")
+        st.write(f"**【車体調整】**: {fitting_adv}")
+        st.write("**【ペダリング技術】**:")
+        for adv in pedaling_adv:
+            st.write(f"- {adv}")
+
+        # 画像保存ボタン
+        report_bytes = create_report_image(max_k, a_range, fitting_adv, pedaling_adv)
+        st.download_button("📋 診断レポート画像を保存", report_bytes, "report.png", "image/png")
         
         st.line_chart({"膝角度": knee_angles, "足首角度": ankle_angles})
-        st.write(f"最大膝角度: {max_k}° / 足首可動幅: {a_range}°")
