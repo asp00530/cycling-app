@@ -2,10 +2,10 @@ import streamlit as st
 import cv2
 import numpy as np
 import tempfile
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import io
 
-# 1. 読み込み設定
+# 1. ライブラリ読み込み
 try:
     from mediapipe.python.solutions import pose as mp_pose
     from mediapipe.python.solutions import drawing_utils as mp_drawing
@@ -14,19 +14,19 @@ except ImportError:
     import mediapipe.solutions.drawing_utils as mp_drawing
 
 st.set_page_config(page_title="プロ仕様ペダリング解析", layout="centered")
-st.title("🚴‍♂️ ペダリング解析 & コーチング PRO")
+st.title("🚴‍♂️ ペダリング解析 & 精密コーチング PRO")
 
 # サイドバー設定
 st.sidebar.header("解析モード設定")
 mode = st.sidebar.radio("解析モード:", ("AIモード (シールなし)", "マーカーモード (シールあり)"))
 
 if mode == "マーカーモード (シールあり)":
-    st.sidebar.info("腰・膝・足首・つま先の4点に同じ色のシールを貼ってください。")
+    st.sidebar.info("腰・膝・足首・つま先の4点に同色のシールを貼ってください。")
     h_range = st.sidebar.slider("色相(H)の範囲", 0, 180, (140, 175)) 
     s_min = st.sidebar.slider("鮮やかさ(S)最小", 0, 255, 70)
     v_min = st.sidebar.slider("明るさ(V)最小", 0, 255, 50)
 else:
-    side = st.sidebar.radio("解析する脚:", ("左脚 (Left)", "右脚 (Right)"))
+    side = st.sidebar.radio("解析する脚:", ("左脚", "右脚"))
 
 # AI初期化
 pose = mp_pose.Pose(model_complexity=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
@@ -38,17 +38,16 @@ def calculate_angle(a, b, c):
     if n_ba == 0 or n_bc == 0: return 0
     return np.degrees(np.arccos(np.clip(np.dot(ba, bc) / (n_ba * n_bc), -1.0, 1.0)))
 
-def create_report_image(max_k, a_range, fitting_title, fitting_detail, pedaling_advs):
-    """診断レポート画像を生成"""
+def create_report_image(max_k, a_range, f_title, f_detail, p_advs):
     img = Image.new('RGB', (800, 900), color=(255, 255, 255))
     d = ImageDraw.Draw(img)
     d.text((50, 30), "PEDALING & FITTING REPORT", fill=(0, 0, 0))
     d.text((50, 80), f"Max Knee Angle: {max_k} deg / Ankle Range: {a_range} deg", fill=(0, 0, 0))
     d.text((50, 150), f"[Fitting Advice]", fill=(255, 0, 0))
-    d.text((50, 180), f"{fitting_title}: {fitting_detail}", fill=(0, 0, 0))
+    d.text((50, 180), f"{f_title}: {f_detail}", fill=(0, 0, 0))
     d.text((50, 280), "[Pedaling Technique Advice]", fill=(0, 0, 255))
     y = 320
-    for line in pedaling_advs:
+    for line in p_advs:
         d.text((50, y), f"- {line}", fill=(0, 0, 0))
         y += 40
     buf = io.BytesIO()
@@ -93,7 +92,7 @@ if uploaded_file is not None:
                     M = cv2.moments(c)
                     if M["m00"] > 0: centers.append([int(M["m10"]/M["m00"]), int(M["m01"]/M["m00"])])
             if len(centers) >= 3:
-                centers = sorted(centers, key=lambda x: x[1]) # Y座標(高さ)でソート
+                centers = sorted(centers, key=lambda x: x[1]) 
                 k_angle = calculate_angle(centers[0], centers[1], centers[2])
                 if len(centers) == 4: a_angle = calculate_angle(centers[1], centers[2], centers[3])
                 for pt in centers: cv2.circle(image, tuple(pt), 10, (255, 255, 255), -1)
@@ -104,7 +103,6 @@ if uploaded_file is not None:
             cv2.putText(image, f"Knee: {int(k_angle)}deg", (50, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
 
         st_frame.image(image, channels="RGB", use_container_width=True)
-    
     cap.release()
 
     if knee_angles:
@@ -112,38 +110,27 @@ if uploaded_file is not None:
         max_k = int(max(knee_angles))
         a_range = int(max(ankle_angles) - min(ankle_angles)) if ankle_angles else 0
         
-        # --- 詳細診断ロジック ---
         st.subheader("📊 競技者向け精密診断レポート")
-        
-        # 1. フィッティング（車体調整）
         st.markdown("### 🛠️ フィッティング・アドバイス")
         if max_k < 145:
-            f_title, f_detail = "サドルが低すぎます", f"現在 {max_k}° です。理想は 145°-155°。あと 10mm〜20mm 上げてください。"
-            st.error(f"**{f_title}**: {f_detail}")
+            f_t, f_d = "サドルが低い", f"現在 {max_k}°。145°-155°が理想。10-20mm上げを推奨。"
+            st.error(f"**{f_t}**: {f_d}")
         elif 145 <= max_k <= 155:
-            f_title, f_detail = "サドル高 適正", "理想的な範囲内です。現在のセッティングを維持してください。"
-            st.success(f"**{f_title}**: {f_detail}")
+            f_t, f_d = "適正", "理想的です。維持してください。"
+            st.success(f"**{f_t}**: {f_d}")
         else:
-            f_title, f_detail = "サドルが高すぎます", f"現在 {max_k}° です。膝裏の故障リスクがあります。5mm〜10mm 下げてください。"
-            st.error(f"**{f_title}**: {f_detail}")
+            f_t, f_d = "サドルが高い", f"現在 {max_k}°。膝裏の故障リスク。5-10mm下げを推奨。"
+            st.error(f"**{f_t}**: {f_d}")
 
-        # 2. ペダリング（体の使い方）
         st.markdown("### 🦵 ペダリング技術アドバイス")
         p_advs = []
         if a_range > 20:
-            p_advs.append(f"アンクリング（足首のブレ）が {a_range}° と大きいです。足首を固定し、円を描く意識を持ちましょう。")
-            p_advs.append("踏み込みの瞬間に「かかと」が落ちすぎないよう注意してください。")
+            p_advs.append(f"足首のブレ({a_range}°)大。固定を意識しましょう。")
         else:
-            p_advs.append("足首が非常に安定しており、パワー伝達効率が高い綺麗なペダリングです。")
-        
-        p_advs.append("上死点（12時）を通過する際、膝を前に放り出すようなイメージを持つとスムーズになります。")
-        p_advs.append("下死点（6時）で足を止めず、「靴の裏の泥を払う」ように後ろへ引き抜きましょう。")
+            p_advs.append("足首が安定した綺麗なペダリングです。")
+        p_advs.append("6時位置で「靴裏の泥を払う」ように後ろへ引く意識を。")
+        for adv in p_advs: st.info(adv)
 
-        for adv in p_advs:
-            st.info(adv)
-
-        # 3. 画像保存ボタン
-        report_bytes = create_report_image(max_k, a_range, f_title, f_detail, p_advs)
-        st.download_button("📋 診断レポート画像を保存", report_bytes, "pedaling_report.png", "image/png")
-        
+        rb = create_report_image(max_k, a_range, f_t, f_d, p_advs)
+        st.download_button("📋 診断レポート画像を保存", rb, "pedaling_report.png", "image/png")
         st.line_chart({"膝角度": knee_angles, "足首角度": ankle_angles})
